@@ -1,147 +1,127 @@
 <?php
 
-namespace app\modules\admin\models;
+namespace app\models;
 
+use Yii;
 use yii\base\Model;
-use yii\helpers\ArrayHelper;
 
 class JsonDataModel extends Model
 {
-    //protected static $jsonPath = '';
+    protected static $dir = 'test/test';
 
-    protected static $jsonData;
+    protected $id;
 
-    protected static $keyDataInFile;
-
-    protected $formName;
-
-    protected $key;
-
-    public function beforeSave()
+    protected function beforeSave()
     {
         return true;
     }
 
-    public function afterSave()
+    protected function afterSave()
     {
     }
 
-    public function save($toFile = false)
+    public function save()
     {
-        if ($this->validate() && $this->beforeSave()) {
-            if (isset(static::$jsonData[$this->key])) {
-                static::$jsonData[$this->key] = $this->toArray();
-            } else {
-                static::$jsonData[] = $this->toArray();
-            }
-            if ($toFile) {
-                static::saveToFile();
-            }
+        $this->validate();
+        //  dump($this->phone, 1);
+        if (!$this->getErrors() && $this->beforeSave()) {
+            $this->_save();
             $this->afterSave();
+
+            return true;
         }
+
+        return false;
     }
 
-    public function beforeDelete()
+    private function _save()
+    {
+        if (!$this->id) {
+            $this->setId();
+        }
+
+        file_put_contents(static::getDir().'/'.$this->id, json_encode($this->toArray()));
+    }
+
+    protected function beforeDelete()
     {
         return true;
     }
 
-    public function afterDelete()
+    protected function afterDelete()
     {
     }
 
     public function delete($toFile = true)
     {
-        if ($this->beforeDelete() && $this->key && isset(static::$jsonData[$this->key])) {
-            unset(static::$jsonData[$this->key]);
+        if ($this->beforeDelete()) {
+            $this->_delete();
+            $this->afterDelete();
+
+            return true;
         }
-        if ($toFile) {
-            static::saveToFile();
-        }
-        $this->afterDelete();
+
+        return false;
     }
 
-    public static function saveToFile()
+    public function _delete()
     {
-        static::assignIds();
-        file_put_contents(static::$jsonPath, json_encode(static::$keyDataInFile ? [static::$keyDataInFile => static::$jsonData] : static::$jsonData));
-    }
-
-    public static function assignIds()
-    {
-        if (static::$jsonData) {
-            static::$jsonData = array_values(static::$jsonData);
-            foreach (static::$jsonData as $k => $v) {
-                static::$jsonData[$k]['id'] = $k + 1;
-            }
+        if (is_file(static::getDir().'/'.$this->id)) {
+            unlink(static::getDir().'/'.$this->id);
         }
     }
 
-    public function formName()
+    public function setId($id = null)
     {
-        if (!$this->formName) {
-            return parent::formName();
-        } else {
-            return $this->formName;
+        if (!$id) {
+            $id = uniqid(time());
         }
+        $this->id = $id;
     }
 
-    public function setFormNameMultiSave()
+    public function getId()
     {
-        $this->formName = parent::formName().'MultiSave['.$this->id.']';
+        return $this->id;
     }
 
-    public static function getJsonData()
+    protected static function getDir()
     {
-        return static::$jsonData;
+        return Yii::getAlias('@app').'/'.static::$dir;
     }
 
-    public static function setJsonData($jsonData = null)
+    protected static function jsonData($id)
     {
-        if ($jsonData === null) {
-            $info = json_decode(file_get_contents(static::$jsonPath), true);
-            if ($key = static::$keyDataInFile) {
-                static::$jsonData = isset($info[$key]) ? $info[$key] : [];
-            } else {
-                static::$jsonData = $info;
-            }
-        } else {
-            static::$jsonData = $jsonData;
-        }
+        return is_file(static::getDir().'/'.$id) ? json_decode(file_get_contents(static::getDir().'/'.$id), true) : [];
     }
 
-    public static function findObjById($data)
+    public function afterFind()
     {
-        $objById = static::findById($data);
-
-        return $objById ? $objById : new static();
     }
 
-    public static function findById($data)
+    public static function findById($id)
     {
-        $id = is_array($data) ? (int) ArrayHelper::getValue($data, 'id') : (int) $data;
-        if ($jsonData = static::$jsonData) {
-            foreach ($jsonData as $k => $v) {
-                if (isset($v['id']) && (int) $v['id'] == $id) {
-                    $object = new static($v);
-                    $object->key = $k;
+        $jsonData = static::jsonData($id);
+        if ($jsonData) {
+            $obj = new static($jsonData);
+            $obj->setId($id);
+            $obj->afterFind();
 
-                    return $object;
-                }
-            }
+            return $obj;
         }
 
-        return null;
+        return  null;
     }
 
     public static function findData()
     {
         $result = [];
-        if ($jsonData = static::$jsonData) {
-            foreach ($jsonData as $k => $v) {
-                $result[$k] = new static($v);
-                $result[$k]->key = $k;
-                $result[$k]->setFormNameMultiSave();
+        $scanDir = scandir(static::getDir());
+        if ($scanDir) {
+            foreach ($scanDir as $v) {
+                $obj = static::findById($v);
+                if ($obj) {
+                    $result[$v] = $obj;
+                }
             }
         }
 
